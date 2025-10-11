@@ -1,0 +1,67 @@
+#pragma kernel CSMain
+
+RWStructuredBuffer<float3> _particlePositions;
+RWStructuredBuffer<float3> _particleVelocities;
+
+float _deltaTime;
+
+
+// Simulation Settings
+const int _particleCount;
+const float2 _boundsSize;
+const float2 _obstacleSize;
+const float2 _obstacleCentre;
+
+[numthreads(256, 1, 1)]  // Leave as 256 threads for now
+void CSMain(int3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _particleCount) return;
+
+    float3 pos = _particlePositions[id.x];
+    float3 vel = _particleVelocities[id.x];
+
+    float3 gravity = float3(0, -10, 0);
+    float collisionDamping = 0.9f;
+
+    // Simple suvat with leapfrog approximation
+    vel += 0.5f * gravity * _deltaTime;
+    pos += (vel * _deltaTime) + (0.5f * gravity * _deltaTime * _deltaTime);
+    vel += 0.5f * gravity * _deltaTime;
+
+
+    // Keep particle inside bounds
+	const float2 halfSize = _boundsSize * 0.5;
+	float2 edgeDst = halfSize - abs(pos.xy);
+
+	if (edgeDst.x <= 0)
+	{
+		pos.x = halfSize.x * sign(pos.x);
+		vel.x *= -1 * collisionDamping;
+	}
+	if (edgeDst.y <= 0)
+	{
+		pos.y = halfSize.y * sign(pos.y);
+		vel.y *= -1 * collisionDamping;
+	}
+
+
+    // Collide particle against the test obstacle
+	const float2 obstacleHalfSize = _obstacleSize * 0.5;
+	float2 obstacleEdgeDst = obstacleHalfSize - abs(pos.xy - _obstacleCentre);
+
+	if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
+	{
+		if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
+			pos.x = obstacleHalfSize.x * sign(pos.x - _obstacleCentre.x) + _obstacleCentre.x;
+			vel.x *= -1 * collisionDamping;
+		}
+		else {
+			pos.y = obstacleHalfSize.y * sign(pos.y - _obstacleCentre.y) + _obstacleCentre.y;
+			vel.y *= -1 * collisionDamping;
+		}
+	}
+
+
+    _particlePositions[id.x] = pos;
+    _particleVelocities[id.x] = vel;
+}
