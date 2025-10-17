@@ -8,40 +8,44 @@ float _deltaTime;
 
 // Simulation Settings
 const int _particleCount;
+const float _particleInfluenceRadius;
+
 const float2 _boundsSize;
 const float2 _obstacleSize;
 const float2 _obstacleCentre;
 
-[numthreads(256, 1, 1)]  // Leave as 256 threads for now
-void CSMain(int3 id : SV_DispatchThreadID)
+const float _collisionDamping;
+const float _gravity;
+const float _forceMultiplier;
+
+float3 CalcUnitVector(float3 vec)
 {
-    if (id.x >= _particleCount) return;
+	float magnitude = sqrt(vec.x*vec.x + vec.y*vec.y + vec.z*vec.z);
+	vec.x = vec.x/magnitude;
+	vec.y = vec.y/magnitude;
+	vec.y = vec.y/magnitude;
+	return vec;
+}
 
-    float3 pos = _particlePositions[id.x];
-    float3 vel = _particleVelocities[id.x];
+void HandleCollisions(uint id) 
+{
 
-    float3 gravity = float3(0, -10, 0);
-    float collisionDamping = 0.9f;
+	float3 pos = _particlePositions[id];
+    float3 vel = _particleVelocities[id];
 
-    // Simple suvat with leapfrog approximation
-    vel += 0.5f * gravity * _deltaTime;
-    pos += (vel * _deltaTime) + (0.5f * gravity * _deltaTime * _deltaTime);
-    vel += 0.5f * gravity * _deltaTime;
-
-
-    // Keep particle inside bounds
+	// Keep particle inside bounds
 	const float2 halfSize = _boundsSize * 0.5;
 	float2 edgeDst = halfSize - abs(pos.xy);
 
 	if (edgeDst.x <= 0)
 	{
 		pos.x = halfSize.x * sign(pos.x);
-		vel.x *= -1 * collisionDamping;
+		vel.x *= -1 * _collisionDamping;
 	}
 	if (edgeDst.y <= 0)
 	{
 		pos.y = halfSize.y * sign(pos.y);
-		vel.y *= -1 * collisionDamping;
+		vel.y *= -1 * _collisionDamping;
 	}
 
 
@@ -53,15 +57,73 @@ void CSMain(int3 id : SV_DispatchThreadID)
 	{
 		if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
 			pos.x = obstacleHalfSize.x * sign(pos.x - _obstacleCentre.x) + _obstacleCentre.x;
-			vel.x *= -1 * collisionDamping;
+			vel.x *= -1 * _collisionDamping;
 		}
 		else {
 			pos.y = obstacleHalfSize.y * sign(pos.y - _obstacleCentre.y) + _obstacleCentre.y;
-			vel.y *= -1 * collisionDamping;
+			vel.y *= -1 * _collisionDamping;
 		}
 	}
 
-
-    _particlePositions[id.x] = pos;
-    _particleVelocities[id.x] = vel;
+	_particlePositions[id] = pos;
+    _particleVelocities[id] = vel;
 }
+
+float3 CalculateParticleForce(int id)
+{
+	float3 pos = _particlePositions[id];
+	float3 acceleration = {0,0,0};
+
+	// Loop through every other particle. Slows down at large particle count so will in future methods
+	// want to put particles into segments on grid, especially for 3d
+	for (int i = 0; i < _particleCount; i++) {
+		if (i == id) {continue;}
+		else {
+			float3 otherPos = _particlePositions[i];
+			float3 dist = otherPos - pos;
+			float3 unitDist = CalcUnitVector(dist);
+			float scalarDist = dot(dist, dist);
+			if (scalarDist < _particleInfluenceRadius) {
+				float x = (_particleInfluenceRadius - scalarDist);
+				acceleration.xy += - unitDist.xy * x*x * _forceMultiplier;
+				  // Only calculating force for self here, but each particle gets checked so the other should get
+				  // equal and opposite force
+			}
+		}
+	}
+
+	return acceleration;
+}
+
+
+void UpdatePositions(uint id, float3 gravity)
+{
+	float3 pos = _particlePositions[id];
+    float3 vel = _particleVelocities[id];
+
+	// Simple suvat with leapfrog approximation for gravity
+	float3 acceleration = gravity + CalculateParticleForce(id);
+    vel += 0.5f * acceleration * _deltaTime;
+    pos += (vel * _deltaTime) + (0.5f * acceleration * _deltaTime * _deltaTime);
+    vel += 0.5f * acceleration * _deltaTime;
+
+	_particlePositions[id] = pos;
+    _particleVelocities[id] = vel;
+
+	HandleCollisions(id);
+}
+
+
+[numthreads(256, 1, 1)]  // Leave as 256 threads for now
+void CSMain(int3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _particleCount) return;
+
+    float3 pos = _particlePositions[id.x];
+    float3 vel = _particleVelocities[id.x];
+
+	float3 gravity = {0, _gravity, 0};
+
+	UpdatePositions(id.x, gravity);
+}
+

@@ -257,6 +257,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1763335088}
   - component: {fileID: 1763335087}
+  - component: {fileID: 1763335089}
   m_Layer: 0
   m_Name: Simulation
   m_TagString: Untagged
@@ -279,13 +280,14 @@ MonoBehaviour:
   computeShader: {fileID: 7200000, guid: 82f51e784755a4ccd8334cd0d484ba25, type: 3}
   renderShader: {fileID: 4800000, guid: 954156977a67546078e1e032b8389153, type: 3}
   maxSpeed: 15
-  particleCount: 256
-  spawnRadius: 15
-  particleRadius: 1
-  particleResolution: 32
-  boundsSize: {x: 19.7, y: 10.49}
-  obstacleSize: {x: 3.38, y: 4}
+  boundsSize: {x: 2, y: 2}
+  obstacleSize: {x: 0.1, y: 0.1}
   obstacleCentre: {x: 2.6, y: -2.42}
+  collisionDamping: 0.9
+  gravity: 0
+  particleInfluenceRadius: 0.2
+  forceMultiplier: 100
+  particleSpawner2D: {fileID: 1763335089}
 --- !u!4 &1763335088
 Transform:
   m_ObjectHideFlags: 0
@@ -301,6 +303,22 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1763335089
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1763335085}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 413de8ead9f134740806a79ddde28699, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: '::'
+  particleCount: 10
+  spawnRadius: 1
+  particleRadius: 0.2
+  segments: 32
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

@@ -9,17 +9,19 @@ public class ParticleSim2D : MonoBehaviour
     [Header ("Material Settings")]
     public float maxSpeed;
 
-    [Header("Particle Settings")]
-    public int particleCount = 100;
-    public float spawnRadius = 5f;
-    public float particleRadius = 1f;
-    [Range(4,64)]
-    public int particleResolution = 32;
-
     [Header ("Obstacle Settings")]
     public Vector2 boundsSize;
     public Vector2 obstacleSize;
 	public Vector2 obstacleCentre;
+
+    [Header ("Physics Settings")]
+    public float collisionDamping = 0.9f;
+    public float gravity = -9.8f;
+    public float particleInfluenceRadius = 0.1f;
+    public float forceMultiplier = 1.0f;
+
+    [Header ("Script References")]
+    public ParticleSpawner2D particleSpawner2D;
 
     GraphicsBuffer particleBuffer;
     GraphicsBuffer velocityBuffer;
@@ -31,39 +33,56 @@ public class ParticleSim2D : MonoBehaviour
     int kernelHandle;
     Bounds bounds;
 
-    struct ParticleData { public Vector3 position; }
-    struct VelocityData { public Vector3 velocity; }
+    // struct ParticleData { public Vector3 position; }
+    // struct VelocityData { public Vector3 velocity; }
+
+    ParticleSpawner2D.InitialParticleData initialData;
 
     private Mesh particleMesh;
     private Material material;
 
+    private int particleCount;
+
     void Start()
     {
-        material = new Material(renderShader);
+        InitializeSystem();
+        
+    }
 
-        particleMesh = MakeCircleMesh(particleResolution, particleRadius*0.25f);
-        spawnRadius *= 0.25f;
+    void Update()
+    {
+        // Evolve compute shader
+        computeShader.SetFloat("_deltaTime", Time.deltaTime);
+        // Run compute shader
+        computeShader.Dispatch(kernelHandle, 1, 1, 1);  
+
+        // Render particles
+        RenderParams rp = new RenderParams(material);
+        rp.worldBounds = bounds;
+        Graphics.RenderMeshIndirect(rp, particleMesh, commandBuffer, commandCount);
+    }
+
+    void InitializeSystem() 
+    {
+        material = new Material(renderShader);
+        particleMesh = particleSpawner2D.MakeCircleMesh();
+        initialData = particleSpawner2D.GetInitialData();
+        particleCount = initialData.velocities.Length;
 
         // Allocate GPU buffers
         particleBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, particleCount, sizeof(float) * 3);
         velocityBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, particleCount, sizeof(float) * 3);
 
-        Vector3[] positions = new Vector3[particleCount];
-        Vector3[] velocities = new Vector3[particleCount];
-
-        for (int i = 0; i < particleCount; i++)
-        {
-            Vector2 rand = Random.insideUnitCircle * spawnRadius;
-            positions[i] = new Vector3(rand.x, rand.y, 0);
-            velocities[i] = new Vector3(Random.Range(-5f,5f), 0, 0);
-        }
-
-        particleBuffer.SetData(positions);
-        velocityBuffer.SetData(velocities);
+        particleBuffer.SetData(initialData.positions);
+        velocityBuffer.SetData(initialData.velocities);
 
         // Setup compute shader, pass through values
         kernelHandle = computeShader.FindKernel("CSMain");
         computeShader.SetInt("_particleCount", particleCount);
+        computeShader.SetFloat("_particleInfluenceRadius", particleInfluenceRadius);
+        computeShader.SetFloat("_collisionDamping", collisionDamping);
+        computeShader.SetFloat("_forceMultiplier", forceMultiplier);
+        computeShader.SetFloat("_gravity", gravity);
         computeShader.SetVector("_boundsSize", boundsSize);
         computeShader.SetVector("_obstacleSize", obstacleSize);
         computeShader.SetVector("_obstacleCentre", obstacleCentre);
@@ -92,18 +111,6 @@ public class ParticleSim2D : MonoBehaviour
         bounds = new Bounds(Vector3.zero, Vector3.one * 100);  // Set to a very large size
     }
 
-    void Update()
-    {
-        // Evolve compute shader
-        computeShader.SetFloat("_deltaTime", Time.deltaTime);
-        computeShader.Dispatch(kernelHandle, 1, 1, 1);  // Split work among work groups here
-
-        // Render particles
-        RenderParams rp = new RenderParams(material);
-        rp.worldBounds = bounds;
-        Graphics.RenderMeshIndirect(rp, particleMesh, commandBuffer, commandCount);
-    }
-
     void OnDestroy()
     {
         particleBuffer?.Release();
@@ -119,28 +126,4 @@ public class ParticleSim2D : MonoBehaviour
         Gizmos.DrawWireCube(obstacleCentre, obstacleSize);
     }
 
-
-    Mesh MakeCircleMesh(int segments, float radius)
-    {
-        Mesh mesh = new Mesh();
-        Vector3[] vertices = new Vector3[segments + 1];
-        int[] triangles = new int[segments * 3];
-
-        vertices[0] = Vector3.zero;
-        for (int i = 0; i < segments; i++)
-        {
-            float angle = i * Mathf.PI * 2f / segments;
-            vertices[i + 1] = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0) * radius;
-
-            int tri = i * 3;
-            triangles[tri] = 0;
-            triangles[tri + 1] = (i + 2 > segments) ? 1 : i + 2;
-            triangles[tri + 2] = i + 1;
-        }
-
-        mesh.vertices = vertices;
-        mesh.triangles = triangles;
-        mesh.RecalculateNormals();
-        return mesh;
-    }
 }
