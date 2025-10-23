@@ -16,8 +16,8 @@ const float2 _obstacleCentre;
 
 const float _collisionDamping;
 const float _gravity;
-const float _epsilon;
-const float _sigma;
+const float _stiffness;
+const float _forceDamping;
 const float _forceCutoff;
 const bool _forceCollisions;
 
@@ -68,6 +68,7 @@ void HandleCollisions(uint id)
 
 float3 CalculateParticleForce(int id)
 {
+	float3 vel = _particleVelocities[id];
 	float3 pos = _particlePositions[id];
 	float3 acceleration = {0,0,0};
 
@@ -78,38 +79,31 @@ float3 CalculateParticleForce(int id)
 		if (i == id) {continue;}
 		else 
 		{
-			// Use Lennard-Jones potential: V = 4ε((σ/r)^12 - (σ/r)^6)
-			// σ is distance where force becomes repulsive, so set to either radius of particle 
-			// or just larger. ε is strenght of force essentially. F = -dU(r)/dr 
-			// = 4ε(-(12σ^12/r^13) + (6σ^6/r^7)) = 24ε/r^2 (2(σ/r)^12 - (σ/r)^6) r->
-			// a = F/m. For now leave m as 1 for all so F=a.
+			float3 rvec = pos - _particlePositions[i];
+			float r = length(rvec);
+			float3 dir = rvec / (r);
 
-			float3 otherPos = _particlePositions[i];
-			float3 rvec = otherPos - pos;
-			float r2 = dot(rvec, rvec);
-			float minR2 = (_sigma * 0.5) * (_sigma * 0.5);
-			if (r2 > minR2 && r2 < (_forceCutoff * _forceCutoff))
+			if (r < _forceCutoff)
 			{
-				float invR2 = 1.0 / r2;
-				float invR6 = invR2 * invR2 * invR2;
-				float invR12 = invR6 * invR6;
-				float f = 24.0 * _epsilon * invR2 * (2.0 * pow(_sigma, 12) * invR12 - pow(_sigma, 6) * invR6);
-				f = clamp(f, -100, 100);
-				acceleration += normalize(rvec) * f;
+				float overlap = _forceCutoff - r;
+
+				float3 relVel = _particleVelocities[i] - vel;
+				float relNormalVel = dot(relVel, dir);
+
+				float3 spring = dir * (_stiffness * pow(r,2));
+				float3 damping = dir * (-_forceDamping * relNormalVel);
+				acceleration += spring + damping;
 			}
 		}
 	}
 	return acceleration;
 }
 
-// So this maths is theoretically correct I believe, at least mathematically, however I have a classic
-// issue of accelerations changing rapidly as the movement per frame is close to the scale of the particle 
-// radius, so partially attractive forces rapidly change to very repulsive forces. THis obviously isnt intended
-// and I have a few options. I can change the scale so that particle radius is larger than the time step
-// distances, or reduce the time between frames to make the accelerations more continuous. Here, for now,
-// I've clamped f to the acceleration gain in a frame is not too large but I want to work on this and will research 
+// Forces have issues with requiring very small time steps to resolve. We can do this but they slow down the
+// simulations. Ive tried another method here but want to change it to a pressure-based method.
 
 
+// Position based dynamics (almost)
 void ExcludeVolumes(int id)
 {
 	float3 pos = _particlePositions[id];
@@ -122,8 +116,7 @@ void ExcludeVolumes(int id)
 	{
 		if (i == id) continue;
 
-		float3 otherPos = _particlePositions[i];
-		float3 rvec = pos - otherPos;
+		float3 rvec = pos - _particlePositions[i];
 		float r = length(rvec);
 		float minDist = 2.0*_particleRadius;  //(sum radii here if using different radii)
 		if (r < minDist)  // overlapping
@@ -144,10 +137,10 @@ void ExcludeVolumes(int id)
 	_particlePositions[id] = pos;
 }
 
-// The current method here for exlcusion is hvaing issues particluarly at the bottom of the boundaries. From
-// Stepping through the frames, I see that its caused by particles where theres a lot of evenly spaced particles
-// nearby, causing the average movement per frame ot be very small, allowing particle volume exclusion to 
-// minimise. I am uploading this version as a record of it before working opn this from research.
+// To fix this method over the last iteration, all we needed to do was loop in the ParticleSim2D script
+// multiple calls to CSMain per frame, dividing the deltaTime by the same amount. This results in smaller
+// distances moved per frame, allliowing the exlcusion correction to be more accurate. 3-5 is a decent range.
+
 
 
 void UpdatePositions(uint id, float3 gravity)

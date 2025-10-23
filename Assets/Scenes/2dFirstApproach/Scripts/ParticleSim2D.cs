@@ -19,11 +19,12 @@ public class ParticleSim2D : MonoBehaviour
     public float collisionDamping = 0.9f;
     public float gravity = -9.8f;
     public float particleRadius = 0.1f;
-    private float sigma = 1.0f;  // Distance to sign swap of LJ potential (in terms of particle radius)
-    public float epsilon = 1.0f;  // Strength of LJ potential well 
-    public float forceCutoff = 4.0f;  // Distance away from particle to check in terms of radius
+    public float stiffness = 1.0f;  // Strength of repulsion
+    public float forceCutoff = 2.0f;  // Distance away from particle to check in terms of radius
+    public float forceDamping = 0.99f;
     // This bool allows the user to choose between a force repulsion between particles and 
     // exclusion principle
+    public int stepsPerFrame = 1;
     public bool forceCollisions = true;
 
     [Header ("Script References")]
@@ -56,10 +57,12 @@ public class ParticleSim2D : MonoBehaviour
     void Update()
     {
         // Evolve compute shader
-        computeShader.SetFloat("_deltaTime", Time.deltaTime);
+        computeShader.SetFloat("_deltaTime", Time.deltaTime/stepsPerFrame);
         // Run compute shader
         // division splits work into groups of 256
-        computeShader.Dispatch(kernelHandle, Mathf.CeilToInt(particleCount / 256f), 1, 1);  
+        for (int i=0; i<stepsPerFrame; i++) {
+            computeShader.Dispatch(kernelHandle, Mathf.CeilToInt(particleCount / 256f), 1, 1);  
+        }
 
         // Render particles
         RenderParams rp = new RenderParams(material);
@@ -73,7 +76,6 @@ public class ParticleSim2D : MonoBehaviour
         particleMesh = particleSpawner2D.MakeCircleMesh();
         initialData = particleSpawner2D.GetInitialData();
         particleCount = initialData.velocities.Length;
-        sigma = particleRadius / (float)Math.Pow(2, 1.0/6.0);
         forceCutoff *= particleRadius;
 
         // Allocate GPU buffers
@@ -89,8 +91,8 @@ public class ParticleSim2D : MonoBehaviour
         computeShader.SetFloat("_particleRadius", particleRadius);
         computeShader.SetFloat("_collisionDamping", collisionDamping);
         computeShader.SetBool("_forceCollisions", forceCollisions);
-        computeShader.SetFloat("_epsilon", epsilon);
-        computeShader.SetFloat("_sigma", sigma);
+        computeShader.SetFloat("_stiffness", stiffness);
+        computeShader.SetFloat("_forceDamping", forceDamping);
         computeShader.SetFloat("_forceCutoff", forceCutoff);
         computeShader.SetFloat("_gravity", gravity);
         computeShader.SetVector("_boundsSize", boundsSize);

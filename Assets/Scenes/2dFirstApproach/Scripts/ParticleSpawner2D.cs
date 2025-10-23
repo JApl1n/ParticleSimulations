@@ -81,4 +81,12 @@ public class ParticleSpawner2D : MonoBehaviour
         mesh.RecalculateNormals();
         return mesh;
     }
+
+    void OnDrawGizmos()
+    {
+        Gizmos.color = new Color(0, 1, 1, 0.5f);
+        float spawnSide = (float)Math.Ceiling(Mathf.Sqrt(particleCount)-1)*(2.5f*particleRadius);
+        Gizmos.DrawWireCube(spawnCentre + new Vector2(spawnSide/2, spawnSide/2), new Vector2(spawnSide, spawnSide));
+        // Gizmos.DrawWireCube(obstacleCentre, obstacleSize);
+    }
 }
