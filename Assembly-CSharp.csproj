@@ -48,7 +48,7 @@
     <Analyzer Include="/Applications/Unity/Hub/Editor/6000.3.0b4/Unity.app/Contents/Resources/BuildPipeline/Unity.SourceGenerators/Unity.UIToolkit.SourceGenerator.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Assets/ParticleSpawner2D.cs" />
+    <Compile Include="Assets/Scenes/2dFirstApproach/Scripts/ParticleSpawner2D.cs" />
     <Compile Include="Assets/Scenes/2dFirstApproach/Scripts/ParticleSim2D.cs" />
   </ItemGroup>
   <ItemGroup>

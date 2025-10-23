@@ -8,7 +8,7 @@ float _deltaTime;
 
 // Simulation Settings
 const int _particleCount;
-const float _particleInfluenceRadius;
+const float _particleRadius;
 
 const float2 _boundsSize;
 const float2 _obstacleSize;
@@ -16,16 +16,11 @@ const float2 _obstacleCentre;
 
 const float _collisionDamping;
 const float _gravity;
-const float _forceMultiplier;
+const float _epsilon;
+const float _sigma;
+const float _forceCutoff;
+const bool _forceCollisions;
 
-float3 CalcUnitVector(float3 vec)
-{
-	float magnitude = sqrt(vec.x*vec.x + vec.y*vec.y + vec.z*vec.z);
-	vec.x = vec.x/magnitude;
-	vec.y = vec.y/magnitude;
-	vec.y = vec.y/magnitude;
-	return vec;
-}
 
 void HandleCollisions(uint id) 
 {
@@ -55,11 +50,13 @@ void HandleCollisions(uint id)
 
 	if (obstacleEdgeDst.x >= 0 && obstacleEdgeDst.y >= 0)
 	{
-		if (obstacleEdgeDst.x < obstacleEdgeDst.y) {
+		if (obstacleEdgeDst.x < obstacleEdgeDst.y) 
+		{
 			pos.x = obstacleHalfSize.x * sign(pos.x - _obstacleCentre.x) + _obstacleCentre.x;
 			vel.x *= -1 * _collisionDamping;
 		}
-		else {
+		else 
+		{
 			pos.y = obstacleHalfSize.y * sign(pos.y - _obstacleCentre.y) + _obstacleCentre.y;
 			vel.y *= -1 * _collisionDamping;
 		}
@@ -76,33 +73,100 @@ float3 CalculateParticleForce(int id)
 
 	// Loop through every other particle. Slows down at large particle count so will in future methods
 	// want to put particles into segments on grid, especially for 3d
-	for (int i = 0; i < _particleCount; i++) {
+	for (int i = 0; i < _particleCount; i++) 
+	{
 		if (i == id) {continue;}
-		else {
+		else 
+		{
+			// Use Lennard-Jones potential: V = 4ε((σ/r)^12 - (σ/r)^6)
+			// σ is distance where force becomes repulsive, so set to either radius of particle 
+			// or just larger. ε is strenght of force essentially. F = -dU(r)/dr 
+			// = 4ε(-(12σ^12/r^13) + (6σ^6/r^7)) = 24ε/r^2 (2(σ/r)^12 - (σ/r)^6) r->
+			// a = F/m. For now leave m as 1 for all so F=a.
+
 			float3 otherPos = _particlePositions[i];
-			float3 dist = otherPos - pos;
-			float3 unitDist = CalcUnitVector(dist);
-			float scalarDist = dot(dist, dist);
-			if (scalarDist < _particleInfluenceRadius) {
-				float x = (_particleInfluenceRadius - scalarDist);
-				acceleration.xy += - unitDist.xy * x*x * _forceMultiplier;
-				  // Only calculating force for self here, but each particle gets checked so the other should get
-				  // equal and opposite force
+			float3 rvec = otherPos - pos;
+			float r2 = dot(rvec, rvec);
+			float minR2 = (_sigma * 0.5) * (_sigma * 0.5);
+			if (r2 > minR2 && r2 < (_forceCutoff * _forceCutoff))
+			{
+				float invR2 = 1.0 / r2;
+				float invR6 = invR2 * invR2 * invR2;
+				float invR12 = invR6 * invR6;
+				float f = 24.0 * _epsilon * invR2 * (2.0 * pow(_sigma, 12) * invR12 - pow(_sigma, 6) * invR6);
+				f = clamp(f, -100, 100);
+				acceleration += normalize(rvec) * f;
 			}
 		}
 	}
-
 	return acceleration;
 }
+
+// So this maths is theoretically correct I believe, at least mathematically, however I have a classic
+// issue of accelerations changing rapidly as the movement per frame is close to the scale of the particle 
+// radius, so partially attractive forces rapidly change to very repulsive forces. THis obviously isnt intended
+// and I have a few options. I can change the scale so that particle radius is larger than the time step
+// distances, or reduce the time between frames to make the accelerations more continuous. Here, for now,
+// I've clamped f to the acceleration gain in a frame is not too large but I want to work on this and will research 
+
+
+void ExcludeVolumes(int id)
+{
+	float3 pos = _particlePositions[id];
+	float3 vel = _particleVelocities[id];
+	float3 correctionSum = 0;
+	uint neighbourCount = 0;
+
+	// Loop through every other particle. If radii overlap, moves both particles apart by half the overlap
+	for (int i = 0; i < _particleCount; i++) 
+	{
+		if (i == id) continue;
+
+		float3 otherPos = _particlePositions[i];
+		float3 rvec = pos - otherPos;
+		float r = length(rvec);
+		float minDist = 2.0*_particleRadius;  //(sum radii here if using different radii)
+		if (r < minDist)  // overlapping
+		{
+			float3 dir = rvec / r;
+			float overlap = 0.5*(minDist-r);
+			correctionSum += dir * overlap;
+			neighbourCount++;
+		}
+	}
+
+	if (neighbourCount > 0) {
+		pos += correctionSum/neighbourCount;
+		vel += correctionSum/neighbourCount * 50;
+	}
+
+	_particleVelocities[id] = vel;
+	_particlePositions[id] = pos;
+}
+
+// The current method here for exlcusion is hvaing issues particluarly at the bottom of the boundaries. From
+// Stepping through the frames, I see that its caused by particles where theres a lot of evenly spaced particles
+// nearby, causing the average movement per frame ot be very small, allowing particle volume exclusion to 
+// minimise. I am uploading this version as a record of it before working opn this from research.
 
 
 void UpdatePositions(uint id, float3 gravity)
 {
+	float3 acceleration = {0,0,0};
+
+	// Simple suvat with leapfrog approximation for gravity
+	if (_forceCollisions) 
+	{
+		acceleration = gravity + CalculateParticleForce(id);
+	} else 
+	{
+		acceleration = gravity;
+		ExcludeVolumes(id);
+	}
+
 	float3 pos = _particlePositions[id];
     float3 vel = _particleVelocities[id];
 
-	// Simple suvat with leapfrog approximation for gravity
-	float3 acceleration = gravity + CalculateParticleForce(id);
     vel += 0.5f * acceleration * _deltaTime;
     pos += (vel * _deltaTime) + (0.5f * acceleration * _deltaTime * _deltaTime);
     vel += 0.5f * acceleration * _deltaTime;

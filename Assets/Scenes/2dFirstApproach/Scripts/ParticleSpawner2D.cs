@@ -1,12 +1,13 @@
 using UnityEngine;
 using Unity.Mathematics;
+using System;
 
 public class ParticleSpawner2D : MonoBehaviour
 {
 
     [Header("Particle Spawning Settings")]
     public int particleCount = 100;
-    public float spawnRadius = 5f;
+    public Vector2 spawnCentre;
     
 
     [Header ("particle Mesh Settings")]
@@ -20,11 +21,19 @@ public class ParticleSpawner2D : MonoBehaviour
         float3[] allPos = new float3[particleCount];
         float3[] allVel = new float3[particleCount];
 
-        for (int i = 0; i < particleCount; i++)
+        int root = (int)Math.Ceiling(Mathf.Sqrt(particleCount));
+        int total = 0;
+
+        for (int i = 0; i < root; i++)
         {
-            Vector2 rand = UnityEngine.Random.insideUnitCircle * spawnRadius;
-            allPos[i] = new float3(rand.x, rand.y, 0);
-            allVel[i] = new float3(UnityEngine.Random.Range(-1f,1f), 0, 0);
+            for (int j = 0; j < root; j++) 
+            {
+                if (total>=particleCount) {continue;} else {
+                    allPos[total] = new float3(spawnCentre.x + j*2.5f*particleRadius, spawnCentre.y + i*2.5f*particleRadius, 0);
+                    allVel[total] = new float3(i, j, 0);
+                    total++;
+                }
+            }
         }
 
         InitialParticleData data = new()
